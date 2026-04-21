@@ -214,7 +214,25 @@ protected:
     
     // Local RIB: prefix -> best announcement
     std::unordered_map<std::string, Announcement> local_rib_;
-    
+
     // Received queue: prefix -> list of received announcements
     std::unordered_map<std::string, std::vector<Announcement>> received_queue_;
+};
+
+/**
+ * ROV (Route Origin Validation) Policy
+ * Extends BGP by dropping any announcement marked rov_invalid before queuing it.
+ * All other BGP logic (selection, propagation) is inherited unchanged.
+ */
+class ROV : public BGP {
+public:
+    ROV() = default;
+    ~ROV() override = default;
+
+    void receiveAnnouncement(const Announcement& ann) override {
+        if (ann.isROVInvalid()) {
+            return;
+        }
+        BGP::receiveAnnouncement(ann);
+    }
 };

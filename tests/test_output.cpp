@@ -91,7 +91,7 @@ void test_simple_output() {
     auto lines = readCSVLines(output_file);
     assert(lines.size() == 2);  // Header + 1 entry
     assert(lines[0] == "asn,prefix,as_path");
-    assert(lines[1] == "1,1.2.0.0/16,\"(1)\"");
+    assert(lines[1] == "1,1.2.0.0/16,\"(1,)\"");
     
     std::cout << "✓ Simple output verified!" << std::endl;
     std::cout << "  Content: " << lines[1] << std::endl;
@@ -142,7 +142,7 @@ void test_output_after_propagation() {
     
     assert(paths[1] == "\"(1, 2, 3)\"");
     assert(paths[2] == "\"(2, 3)\"");
-    assert(paths[3] == "\"(3)\"");
+    assert(paths[3] == "\"(3,)\"");
     
     std::cout << "✓ Propagation output verified!" << std::endl;
     std::cout << "  AS1: " << paths[1] << std::endl;
@@ -172,7 +172,7 @@ void test_multiple_prefixes() {
     std::set<std::string> prefixes;
     for (const auto& entry : entries) {
         assert(entry.asn == 1);
-        assert(entry.as_path == "\"(1)\"");
+        assert(entry.as_path == "\"(1,)\"");
         prefixes.insert(entry.prefix);
     }
     
@@ -234,8 +234,8 @@ void test_conflicting_announcements() {
         paths[entry.asn] = entry.as_path;
     }
     
-    assert(paths[2] == "\"(2)\"");
-    assert(paths[3] == "\"(3)\"");
+    assert(paths[2] == "\"(2,)\"");
+    assert(paths[3] == "\"(3,)\"");
     // AS1 should choose one (lower next hop ASN = AS2)
     assert(paths[1] == "\"(1, 2)\"" || paths[1] == "\"(1, 3)\"");
     
@@ -292,8 +292,8 @@ void test_bgpsimulator_output() {
     }
     
     // Verify expected paths
-    assert(paths[777] == "\"(777)\"");
-    assert(paths[666] == "\"(666)\"");
+    assert(paths[777] == "\"(777,)\"");
+    assert(paths[666] == "\"(666,)\"");
     assert(paths[4] == "\"(4, 666)\"");     // AS4 prefers shorter path from AS666
     assert(paths[3] == "\"(3, 777)\"");     // AS3 prefers provider AS777
     
@@ -402,7 +402,7 @@ void test_larger_topology() {
         paths[entry.asn] = entry.as_path;
     }
     
-    assert(paths[10] == "\"(10)\"");
+    assert(paths[10] == "\"(10,)\"");
     assert(paths[1] == "\"(1, 2, 5, 9, 10)\"");  // Longest path through tree
     
     std::cout << "✓ Larger topology output correctly!" << std::endl;

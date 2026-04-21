@@ -138,13 +138,88 @@ public:
         if (it != ases_.end()) {
             return it->second.get();
         }
-        
-        // Create new AS
+
         auto new_as = std::make_unique<AS>(asn);
         AS* as_ptr = new_as.get();
         ases_[asn] = std::move(new_as);
-        
+
         return as_ptr;
+    }
+
+    /**
+     * Assign BGP or ROV policies to every AS in the graph.
+     * Must be called after buildFromCAIDAFile and before seeding/propagation.
+     * ASNs in rov_asns get ROV policy; all others get BGP.
+     */
+    void initializePolicies(const std::unordered_set<uint32_t>& rov_asns = {}) {
+        for (auto& pair : ases_) {
+            uint32_t asn = pair.first;
+            AS* as = pair.second.get();
+            if (rov_asns.count(asn)) {
+                as->setPolicy(std::make_unique<ROV>());
+            } else {
+                as->setPolicy(std::make_unique<BGP>());
+            }
+        }
+    }
+
+    /**
+     * Seed announcements from a CSV file.
+     * Expected columns: seed_asn,prefix,rov_invalid
+     * Must be called after initializePolicies.
+     */
+    bool seedFromCSV(const std::string& filename) {
+        std::ifstream file(filename);
+        if (!file.is_open()) {
+            std::cerr << "Error: Could not open announcements file: " << filename << std::endl;
+            return false;
+        }
+
+        std::string line;
+        std::getline(file, line);  // skip header
+
+        size_t count = 0;
+        while (std::getline(file, line)) {
+            if (line.empty()) continue;
+
+            std::istringstream iss(line);
+            std::string asn_str, prefix, rov_str;
+
+            if (!std::getline(iss, asn_str, ',') ||
+                !std::getline(iss, prefix, ',') ||
+                !std::getline(iss, rov_str)) {
+                std::cerr << "Warning: malformed announcement line: " << line << std::endl;
+                continue;
+            }
+
+            // Strip trailing \r from Windows line endings
+            if (!rov_str.empty() && rov_str.back() == '\r') rov_str.pop_back();
+
+            try {
+                uint32_t asn = std::stoul(asn_str);
+                bool rov_invalid = (rov_str == "True" || rov_str == "true" || rov_str == "1");
+
+                AS* as = getAS(asn);
+                if (!as) {
+                    std::cerr << "Warning: seed ASN " << asn << " not in graph, skipping" << std::endl;
+                    continue;
+                }
+                Policy* policy = as->getPolicy();
+                if (!policy) {
+                    std::cerr << "Warning: AS " << asn << " has no policy, skipping" << std::endl;
+                    continue;
+                }
+                policy->seedAnnouncement(Announcement(prefix, {asn}, asn, "origin", rov_invalid));
+                count++;
+            } catch (const std::exception& e) {
+                std::cerr << "Warning: failed to parse line: " << line
+                          << " (" << e.what() << ")" << std::endl;
+            }
+        }
+
+        file.close();
+        std::cout << "Seeded " << count << " announcements" << std::endl;
+        return true;
     }
 
     /**
@@ -488,7 +563,7 @@ public:
                 // Format: asn,prefix,as_path
                 const std::vector<uint32_t>& path = ann.getASPath();
 
-                // Build "(a, b, c, d)" format
+                // Build Python tuple format: "(a, b, c)" or "(a,)" for single element
                 std::ostringstream path_stream;
                 path_stream << "\"(";
 
@@ -497,6 +572,10 @@ public:
                     if (i != path.size() - 1) {
                         path_stream << ", ";
                     }
+                }
+
+                if (path.size() == 1) {
+                    path_stream << ",";
                 }
 
                 path_stream << ")\"";

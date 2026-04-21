@@ -45,8 +45,11 @@ test_propagation: $(TEST_DIR)/test_propagation.cpp $(HEADERS)
 test_output: $(TEST_DIR)/test_output.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) -o $(BUILD_DIR)/test_output $(TEST_DIR)/test_output.cpp
 
+test_rov: $(TEST_DIR)/test_rov.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -o $(BUILD_DIR)/test_rov $(TEST_DIR)/test_rov.cpp
+
 # Convenience target to run all tests
-test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seeding test_propagation test_output
+test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seeding test_propagation test_output test_rov
 	@echo "Running all tests..."
 	@echo ""
 	@echo "=== Graph Tests ==="
@@ -69,17 +72,28 @@ test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seedi
 	@echo ""
 	@echo "=== CSV Output Tests ==="
 	./$(BUILD_DIR)/test_output
+	@echo ""
+	@echo "=== ROV Tests ==="
+	./$(BUILD_DIR)/test_rov
 
 # Run main program with bench/prefix data
 run_prefix: bgp_simulator
-	./$(BUILD_DIR)/bgp_simulator bench/prefix/CAIDAASGraphCollector_2025.10.15.txt
+	./$(BUILD_DIR)/bgp_simulator \
+		bench/prefix/CAIDAASGraphCollector_2025.10.15.txt \
+		bench/prefix/anns.csv \
+		bench/prefix/rov_asns.csv \
+		output/ribs_prefix.csv
 
 # Run main program with bench/many data
 run_many: bgp_simulator
-	./$(BUILD_DIR)/bgp_simulator bench/many/CAIDAASGraphCollector_2025.10.15.txt
+	./$(BUILD_DIR)/bgp_simulator \
+		bench/many/CAIDAASGraphCollector_2025.10.15.txt \
+		bench/many/anns.csv \
+		bench/many/rov_asns.csv \
+		output/ribs_many.csv
 
 clean:
 	rm -rf $(BUILD_DIR)/*
 	rm -rf output/*
 
-.PHONY: clean test pytest pytest-verbose test-python run_prefix run_many test_graph test_announcement test_bgp_policy test_caida_policy test_flatten_graph test_seeding test_propagation test_output
+.PHONY: clean test pytest pytest-verbose test-python run_prefix run_many test_graph test_announcement test_bgp_policy test_caida_policy test_flatten_graph test_seeding test_propagation test_output test_rov
