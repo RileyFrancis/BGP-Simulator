@@ -2,3 +2,4 @@ bench/
 build/
 output/
 *.pdf
+.claude/

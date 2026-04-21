@@ -444,6 +444,64 @@ public:
         std::cout << "========================================" << std::endl;
     }
     
+    /**
+     * Output the routing tables to a CSV file (Section 3.7)
+     * Format: asn,prefix,as_path
+     * 
+     * This dumps the local RIB of every AS to a CSV file that Cloudflare
+     * can use to optimize their routing decisions.
+     * 
+     * @param filename Output CSV filename
+     * @return true if successful, false otherwise
+     */
+    bool outputToCSV(const std::string& filename) {
+        std::ofstream outfile(filename);
+        
+        if (!outfile.is_open()) {
+            std::cerr << "Error: Could not open output file " << filename << std::endl;
+            return false;
+        }
+        
+        // Write CSV header
+        outfile << "asn,prefix,as_path" << std::endl;
+        
+        // Iterate through all ASes
+        size_t total_announcements = 0;
+        for (const auto& pair : ases_) {
+            AS* as = pair.second.get();
+            uint32_t asn = as->getASN();
+            
+            // Get the policy (should be BGP)
+            BGP* policy = dynamic_cast<BGP*>(as->getPolicy());
+            if (!policy) {
+                continue;  // Skip ASes without BGP policy
+            }
+            
+            // Get the local RIB
+            const auto& local_rib = policy->getLocalRIB();
+            
+            // Write each announcement in the RIB
+            for (const auto& rib_entry : local_rib) {
+                const std::string& prefix = rib_entry.first;
+                const Announcement& ann = rib_entry.second;
+                
+                // Format: asn,prefix,as_path
+                outfile << asn << "," 
+                        << prefix << "," 
+                        << ann.getASPathString() << std::endl;
+                
+                total_announcements++;
+            }
+        }
+        
+        outfile.close();
+        
+        std::cout << "\nOutput written to " << filename << std::endl;
+        std::cout << "Total announcements: " << total_announcements << std::endl;
+        
+        return true;
+    }
+    
 private:
     // Storage for all AS objects (ASN -> AS object)
     std::unordered_map<uint32_t, std::unique_ptr<AS>> ases_;
