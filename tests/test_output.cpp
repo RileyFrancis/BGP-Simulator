@@ -7,6 +7,7 @@
 #include <cassert>
 #include <memory>
 #include <set>
+#include <map>
 #include <algorithm>
 
 /**
@@ -83,14 +84,14 @@ void test_simple_output() {
     policy->seedAnnouncement(Announcement("1.2.0.0/16", {1}, 1, "origin", false));
     
     // Output to CSV
-    std::string output_file = "test_simple_output.csv";
+    std::string output_file = "output/test_simple_output.csv";
     assert(graph.outputToCSV(output_file));
     
     // Verify the output
     auto lines = readCSVLines(output_file);
     assert(lines.size() == 2);  // Header + 1 entry
     assert(lines[0] == "asn,prefix,as_path");
-    assert(lines[1] == "1,1.2.0.0/16,1");
+    assert(lines[1] == "1,1.2.0.0/16,\"(1)\"");
     
     std::cout << "✓ Simple output verified!" << std::endl;
     std::cout << "  Content: " << lines[1] << std::endl;
@@ -125,7 +126,7 @@ void test_output_after_propagation() {
     graph.propagateAnnouncements();
     
     // Output
-    std::string output_file = "test_propagation_output.csv";
+    std::string output_file = "output/test_propagation_output.csv";
     assert(graph.outputToCSV(output_file));
     
     // Parse and verify
@@ -139,9 +140,9 @@ void test_output_after_propagation() {
         paths[entry.asn] = entry.as_path;
     }
     
-    assert(paths[1] == "1-2-3");
-    assert(paths[2] == "2-3");
-    assert(paths[3] == "3");
+    assert(paths[1] == "\"(1, 2, 3)\"");
+    assert(paths[2] == "\"(2, 3)\"");
+    assert(paths[3] == "\"(3)\"");
     
     std::cout << "✓ Propagation output verified!" << std::endl;
     std::cout << "  AS1: " << paths[1] << std::endl;
@@ -162,7 +163,7 @@ void test_multiple_prefixes() {
     policy->seedAnnouncement(Announcement("2.0.0.0/8", {1}, 1, "origin", false));
     policy->seedAnnouncement(Announcement("3.0.0.0/8", {1}, 1, "origin", false));
     
-    std::string output_file = "test_multiple_prefixes.csv";
+    std::string output_file = "output/test_multiple_prefixes.csv";
     assert(graph.outputToCSV(output_file));
     
     auto entries = parseCSV(output_file);
@@ -171,7 +172,7 @@ void test_multiple_prefixes() {
     std::set<std::string> prefixes;
     for (const auto& entry : entries) {
         assert(entry.asn == 1);
-        assert(entry.as_path == "1");
+        assert(entry.as_path == "\"(1)\"");
         prefixes.insert(entry.prefix);
     }
     
@@ -220,7 +221,7 @@ void test_conflicting_announcements() {
     
     graph.propagateAnnouncements();
     
-    std::string output_file = "test_conflicts.csv";
+    std::string output_file = "output/test_conflicts.csv";
     assert(graph.outputToCSV(output_file));
     
     auto entries = parseCSV(output_file);
@@ -233,10 +234,10 @@ void test_conflicting_announcements() {
         paths[entry.asn] = entry.as_path;
     }
     
-    assert(paths[2] == "2");
-    assert(paths[3] == "3");
+    assert(paths[2] == "\"(2)\"");
+    assert(paths[3] == "\"(3)\"");
     // AS1 should choose one (lower next hop ASN = AS2)
-    assert(paths[1] == "1-2" || paths[1] == "1-3");
+    assert(paths[1] == "\"(1, 2)\"" || paths[1] == "\"(1, 3)\"");
     
     std::cout << "✓ Conflict resolution output correctly!" << std::endl;
     std::cout << "  AS1 chose: " << paths[1] << std::endl;
@@ -279,7 +280,7 @@ void test_bgpsimulator_output() {
     
     graph.propagateAnnouncements();
     
-    std::string output_file = "test_bgpsimulator.csv";
+    std::string output_file = "output/test_bgpsimulator.csv";
     assert(graph.outputToCSV(output_file));
     
     auto entries = parseCSV(output_file);
@@ -291,10 +292,10 @@ void test_bgpsimulator_output() {
     }
     
     // Verify expected paths
-    assert(paths[777] == "777");
-    assert(paths[666] == "666");
-    assert(paths[4] == "4-666");     // AS4 prefers shorter path from AS666
-    assert(paths[3] == "3-777");     // AS3 prefers provider AS777
+    assert(paths[777] == "\"(777)\"");
+    assert(paths[666] == "\"(666)\"");
+    assert(paths[4] == "\"(4, 666)\"");     // AS4 prefers shorter path from AS666
+    assert(paths[3] == "\"(3, 777)\"");     // AS3 prefers provider AS777
     
     std::cout << "✓ bgpsimulator.com output matches!" << std::endl;
     std::cout << "  AS777: " << paths[777] << std::endl;
@@ -315,7 +316,7 @@ void test_ipv4_and_ipv6_output() {
     policy->seedAnnouncement(Announcement("192.0.2.0/24", {1}, 1, "origin", false));
     policy->seedAnnouncement(Announcement("2001:db8::/32", {1}, 1, "origin", false));
     
-    std::string output_file = "test_ipv4_ipv6.csv";
+    std::string output_file = "output/test_ipv4_ipv6.csv";
     assert(graph.outputToCSV(output_file));
     
     auto entries = parseCSV(output_file);
@@ -389,7 +390,7 @@ void test_larger_topology() {
     
     graph.propagateAnnouncements();
     
-    std::string output_file = "test_larger_topology.csv";
+    std::string output_file = "output/test_larger_topology.csv";
     assert(graph.outputToCSV(output_file));
     
     auto entries = parseCSV(output_file);
@@ -401,8 +402,8 @@ void test_larger_topology() {
         paths[entry.asn] = entry.as_path;
     }
     
-    assert(paths[10] == "10");
-    assert(paths[1] == "1-2-5-9-10");  // Longest path through tree
+    assert(paths[10] == "\"(10)\"");
+    assert(paths[1] == "\"(1, 2, 5, 9, 10)\"");  // Longest path through tree
     
     std::cout << "✓ Larger topology output correctly!" << std::endl;
     std::cout << "  Total ASes: " << entries.size() << std::endl;

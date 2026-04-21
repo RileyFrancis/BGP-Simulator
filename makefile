@@ -42,8 +42,11 @@ test_seeding: $(TEST_DIR)/test_seeding.cpp $(HEADERS)
 test_propagation: $(TEST_DIR)/test_propagation.cpp $(HEADERS)
 	$(CXX) $(CXXFLAGS) -o $(BUILD_DIR)/test_propagation $(TEST_DIR)/test_propagation.cpp
 
+test_output: $(TEST_DIR)/test_output.cpp $(HEADERS)
+	$(CXX) $(CXXFLAGS) -o $(BUILD_DIR)/test_output $(TEST_DIR)/test_output.cpp
+
 # Convenience target to run all tests
-test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seeding test_propagation
+test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seeding test_propagation test_output
 	@echo "Running all tests..."
 	@echo ""
 	@echo "=== Graph Tests ==="
@@ -63,6 +66,9 @@ test: test_graph test_announcement test_bgp_policy test_flatten_graph test_seedi
 	@echo ""
 	@echo "=== Announcement Propagation Tests ==="
 	./$(BUILD_DIR)/test_propagation
+	@echo ""
+	@echo "=== CSV Output Tests ==="
+	./$(BUILD_DIR)/test_output
 
 # Run main program with bench/prefix data
 run_prefix: bgp_simulator
@@ -74,5 +80,6 @@ run_many: bgp_simulator
 
 clean:
 	rm -rf $(BUILD_DIR)/*
+	rm -rf output/*
 
-.PHONY: clean test pytest pytest-verbose test-python run_prefix run_many test_graph test_announcement test_bgp_policy test_caida_policy test_flatten_graph test_seeding test_propagation
+.PHONY: clean test pytest pytest-verbose test-python run_prefix run_many test_graph test_announcement test_bgp_policy test_caida_policy test_flatten_graph test_seeding test_propagation test_output

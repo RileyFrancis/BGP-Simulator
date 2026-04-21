@@ -486,9 +486,24 @@ public:
                 const Announcement& ann = rib_entry.second;
                 
                 // Format: asn,prefix,as_path
-                outfile << asn << "," 
-                        << prefix << "," 
-                        << ann.getASPathString() << std::endl;
+                const std::vector<uint32_t>& path = ann.getASPath();
+
+                // Build "(a, b, c, d)" format
+                std::ostringstream path_stream;
+                path_stream << "\"(";
+
+                for (size_t i = 0; i < path.size(); ++i) {
+                    path_stream << path[i];
+                    if (i != path.size() - 1) {
+                        path_stream << ", ";
+                    }
+                }
+
+                path_stream << ")\"";
+
+                outfile << asn << ","
+                        << prefix << ","
+                        << path_stream.str() << std::endl;
                 
                 total_announcements++;
             }
