@@ -145,15 +145,29 @@
     /* ── Buttons ─────────────────────────────────────────── */
     button { cursor: pointer; border: none; border-radius: 6px; font-weight: 600; transition: background .15s, opacity .15s; }
 
-    .btn-demo {
-      background: var(--raised);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 6px 12px;
-      font-size: .8rem;
-      white-space: nowrap;
+    /* ── Preset bar ──────────────────────────────────────── */
+    .preset-bar {
+      display: flex; align-items: center; gap: 8px;
+      flex-wrap: wrap; margin-bottom: 18px;
     }
-    .btn-demo:hover { border-color: var(--blue); color: var(--blue); }
+    .preset-label { font-size: .78rem; color: var(--muted); font-weight: 500; white-space: nowrap; }
+    .btn-preset {
+      background: var(--raised); border: 1px solid var(--border);
+      color: var(--text); padding: 5px 11px; font-size: .8rem; white-space: nowrap;
+    }
+    .btn-preset:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+    .btn-preset.active { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
+    .btn-preset:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ── Progress bar ────────────────────────────────────── */
+    .progress-wrap { margin-top: 5px; }
+    .progress-track {
+      height: 3px; background: var(--raised); border-radius: 2px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: var(--blue); border-radius: 2px; width: 0%;
+      transition: width .1s linear;
+    }
 
     .btn-run {
       width: 100%; padding: 11px; margin-top: 6px;
@@ -299,21 +313,29 @@
   <section class="card">
     <div class="card-title">Simulation Inputs</div>
 
+    <!-- Preset loader -->
+    <div class="preset-bar">
+      <span class="preset-label">Presets:</span>
+      <button class="btn-preset" id="preset-demo"   onclick="loadPreset('demo')">Demo (14 AS)</button>
+      <button class="btn-preset" id="preset-medium" onclick="loadPreset('medium')">Medium (99 AS)</button>
+      <button class="btn-preset" id="preset-full"   onclick="loadPreset('full')">Full CAIDA (~78K AS)</button>
+    </div>
+    <div id="preset-progress" style="display:none;margin-bottom:14px">
+      <div class="hint" id="preset-status">Loading…</div>
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+    </div>
+
     <div class="field">
       <label>AS Topology <span style="color:var(--red)">*</span></label>
-      <div class="file-row">
-        <input type="file" id="caida-file" accept=".txt,.csv" />
-        <button class="btn-demo" onclick="loadDemo('caida')">Demo</button>
-      </div>
-      <div class="hint" id="caida-hint">CAIDA-format file (provider|customer|-1 or peer|peer|0)</div>
+      <input type="file" id="caida-file" accept=".txt,.csv" />
+      <div class="hint" id="caida-hint">CAIDA-format file (provider|customer|-1 or peer|peer|0) — or use a preset above</div>
     </div>
 
     <div class="field">
       <label>Announcements CSV <span style="color:var(--red)">*</span></label>
-      <div class="file-row">
-        <input type="file" id="anns-file" accept=".csv" />
-        <button class="btn-demo" onclick="loadDemo('anns')">Demo</button>
-      </div>
+      <input type="file" id="anns-file" accept=".csv" />
       <div class="hint" id="anns-hint">Columns: seed_asn, prefix, rov_invalid</div>
     </div>
 
@@ -417,6 +439,12 @@ let visNetwork    = null;
 let showAll       = false;
 const MAX_IRRELEVANT = 1200;   // cap irrelevant nodes to keep vis.js responsive
 
+// Topology cache — avoid re-parsing the same file on every buildGraph call
+let cachedTopo     = null;
+let cachedTopoKey  = null;
+let cachedRanks    = null;
+let cachedRanksKey = null;
+
 // ─────────────────────────────────────────────────────────────
 // Worker
 // ─────────────────────────────────────────────────────────────
@@ -473,6 +501,8 @@ function setHint(id, msg, cls) {
 document.getElementById('caida-file').addEventListener('change', async function() {
   const f = this.files[0]; if (!f) return;
   caidaContent = await readFile(f);
+  cachedTopo = cachedTopoKey = cachedRanks = cachedRanksKey = null;
+  document.querySelectorAll('.btn-preset').forEach(b => b.classList.remove('active'));
   setHint('caida-hint', `✓ ${f.name}  (${fmtBytes(f.size)})`, 'ok');
 });
 document.getElementById('anns-file').addEventListener('change', async function() {
@@ -481,25 +511,77 @@ document.getElementById('anns-file').addEventListener('change', async function()
   setHint('anns-hint', `✓ ${f.name}  (${fmtBytes(f.size)})`, 'ok');
 });
 
-async function loadDemo(type) {
-  const urls = { caida: 'data/demo_caida.txt', anns: 'data/demo_anns.csv' };
+async function loadPreset(type) {
+  const PRESETS = {
+    demo:   { caida: 'data/demo_caida.txt',   anns: 'data/demo_anns.csv',
+               rov:  'data/demo_rov_asns.txt', targetAsn: 100,
+               label: 'Demo (14 AS)' },
+    medium: { caida: 'data/medium_caida.txt', anns: 'data/medium_anns.csv',
+               rov:  'data/medium_rov_asns.txt', targetAsn: 1001,
+               label: 'Medium (99 AS)' },
+    full:   { caida: 'data/full_caida.txt',   anns: 'data/full_anns.csv',
+               rov:  'data/full_rov_asns.txt', targetAsn: 174,
+               label: 'Full CAIDA (~78K AS)', large: true },
+  };
+  const cfg = PRESETS[type];
+  if (!cfg) return;
+
+  document.querySelectorAll('.btn-preset').forEach(b => b.disabled = true);
+  const prog = document.getElementById('preset-progress');
+  const stat = document.getElementById('preset-status');
+  const fill = document.getElementById('progress-fill');
+  prog.style.display = 'block';
+  stat.style.color   = '';
+  stat.textContent   = `Loading ${cfg.label}…`;
+  fill.style.width   = '0%';
+
   try {
-    const text = await (await fetch(urls[type])).text();
-    if (type === 'caida') {
-      caidaContent = text;
-      setHint('caida-hint', '✓ Demo topology loaded (14 ASes)', 'ok');
-      const rov = await (await fetch('data/demo_rov_asns.txt')).text();
-      document.getElementById('rov-asns').value = rov.trim();
-      if (!document.getElementById('target-asn').value)
-        document.getElementById('target-asn').value = '100';
-    } else {
-      annsContent = text;
-      setHint('anns-hint', '✓ Demo announcements loaded', 'ok');
-    }
+    const [caida, anns, rov] = await Promise.all([
+      cfg.large ? fetchWithProgress(cfg.caida) : fetch(cfg.caida).then(r => r.text()),
+      fetch(cfg.anns).then(r => r.text()),
+      fetch(cfg.rov).then(r => r.text()),
+    ]);
+
+    caidaContent = caida;
+    annsContent  = anns;
+    cachedTopo = cachedTopoKey = cachedRanks = cachedRanksKey = null;
+
+    document.getElementById('rov-asns').value       = rov.trim();
+    document.getElementById('target-asn').value     = cfg.targetAsn;
+    setHint('caida-hint', `✓ ${cfg.label} topology loaded`, 'ok');
+    setHint('anns-hint',  `✓ Announcements loaded`, 'ok');
+
+    prog.style.display = 'none';
+    document.querySelectorAll('.btn-preset').forEach(b => { b.disabled = false; b.classList.remove('active'); });
+    document.getElementById(`preset-${type}`).classList.add('active');
+
   } catch (err) {
-    setHint(type === 'caida' ? 'caida-hint' : 'anns-hint',
-            '✗ Failed to load demo: ' + err.message, 'warn');
+    stat.style.color = 'var(--red)';
+    stat.textContent = '✗ Failed: ' + err.message;
+    document.querySelectorAll('.btn-preset').forEach(b => b.disabled = false);
   }
+}
+
+async function fetchWithProgress(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const total  = parseInt(resp.headers.get('Content-Length') || '0', 10);
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  const fill   = document.getElementById('progress-fill');
+  const stat   = document.getElementById('preset-status');
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total && fill) fill.style.width = Math.round(received / total * 100) + '%';
+    if (stat && total) stat.textContent = `Loading… ${fmtBytes(received)} / ${fmtBytes(total)}`;
+  }
+  if (fill) fill.style.width = '100%';
+  return new Blob(chunks).text();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -620,23 +702,45 @@ function parseCaida(content) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Graph — compute propagation ranks (BFS up from leaves)
+// Graph — compute propagation ranks via topological BFS  O(V+E)
+// rank 0 = leaf (no customers), higher = closer to Tier-1
 // ─────────────────────────────────────────────────────────────
 function computeRanks(topoNodes, topoEdges) {
-  const rank = new Map();
-  for (const asn of topoNodes.keys()) rank.set(asn, 0);
+  const childRem = new Map();  // provider -> # unranked customers remaining
+  const maxCR    = new Map();  // provider -> max child rank seen so far
+  const parents  = new Map();  // customer -> [provider ASNs]
 
-  // Each provider's rank = max(customer rank) + 1; iterate until stable.
-  // Real BGP hierarchies are ≤~10 levels deep, so this converges fast.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const e of topoEdges) {
-      if (e.rel === -1) {  // e.from = provider, e.to = customer
-        const r = (rank.get(e.to) || 0) + 1;
-        if (r > (rank.get(e.from) || 0)) { rank.set(e.from, r); changed = true; }
-      }
+  for (const asn of topoNodes.keys()) {
+    childRem.set(asn, 0);
+    maxCR.set(asn, 0);
+    parents.set(asn, []);
+  }
+  for (const e of topoEdges) {
+    if (e.rel === -1) {  // e.from = provider, e.to = customer
+      childRem.set(e.from, (childRem.get(e.from) || 0) + 1);
+      parents.get(e.to).push(e.from);
     }
+  }
+
+  const rank  = new Map();
+  const queue = [];
+  for (const asn of topoNodes.keys()) {
+    if (childRem.get(asn) === 0) { rank.set(asn, 0); queue.push(asn); }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const asn = queue[head++];
+    const r   = rank.get(asn);
+    for (const prov of parents.get(asn)) {
+      if (r + 1 > (maxCR.get(prov) || 0)) maxCR.set(prov, r + 1);
+      const rem = childRem.get(prov) - 1;
+      childRem.set(prov, rem);
+      if (rem === 0) { rank.set(prov, maxCR.get(prov)); queue.push(prov); }
+    }
+  }
+  for (const asn of topoNodes.keys()) {
+    if (!rank.has(asn)) rank.set(asn, 0);
   }
   return rank;
 }
@@ -647,7 +751,14 @@ function computeRanks(topoNodes, topoEdges) {
 function buildGraph(routes, targetAsn) {
   if (!caidaContent) return;
 
-  const topo = parseCaida(caidaContent);
+  // Cache topology parse — avoids re-parsing 8.6 MB on every toggle/rebuild
+  if (cachedTopoKey !== caidaContent) {
+    cachedTopo     = parseCaida(caidaContent);
+    cachedTopoKey  = caidaContent;
+    cachedRanks    = null;
+    cachedRanksKey = null;
+  }
+  const topo = cachedTopo;
 
   // ROV set from textarea
   const rovSet = new Set(
@@ -687,9 +798,14 @@ function buildGraph(routes, targetAsn) {
     }
   }
 
-  // Compute propagation ranks for size scaling
-  const ranks   = computeRanks(topo.nodes, topo.edges);
-  const maxRank = Math.max(1, ...ranks.values());
+  // Compute propagation ranks for size scaling (cached)
+  if (cachedRanksKey !== caidaContent) {
+    cachedRanks    = computeRanks(topo.nodes, topo.edges);
+    cachedRanksKey = caidaContent;
+  }
+  const ranks = cachedRanks;
+  let maxRank = 1;
+  for (const r of ranks.values()) if (r > maxRank) maxRank = r;
 
   // Build vis DataSet for nodes
   const visNodes = [];
@@ -783,6 +899,8 @@ function buildGraph(routes, targetAsn) {
 
   const container = document.getElementById('graph-canvas');
 
+  // Scale physics aggressiveness to node count for snappy layout on large graphs
+  const isLarge = visNodes.length > 400;
   visNetwork = new vis.Network(
     container,
     { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) },
@@ -791,14 +909,17 @@ function buildGraph(routes, targetAsn) {
         enabled: true,
         solver: 'barnesHut',
         barnesHut: {
-          gravitationalConstant: -5000,
-          centralGravity: 0.25,
-          springLength: 130,
-          springConstant: 0.05,
-          damping: 0.12,
+          gravitationalConstant: isLarge ? -2000 : -5000,
+          centralGravity:        isLarge ? 0.5   : 0.25,
+          springLength:          isLarge ? 60    : 130,
+          springConstant:        isLarge ? 0.1   : 0.05,
+          damping:               isLarge ? 0.3   : 0.12,
           avoidOverlap: 0.3,
         },
-        stabilization: { iterations: 250, updateInterval: 25 },
+        stabilization: {
+          iterations:     isLarge ? 80  : 250,
+          updateInterval: isLarge ? 10  : 25,
+        },
       },
       interaction: {
         hover: true,
@@ -821,8 +942,11 @@ function onToggleAll() {
 
 function resetLayout() {
   if (!visNetwork) return;
-  visNetwork.setOptions({ physics: { enabled: true } });
-  visNetwork.stabilize(300);
+  const nodeCount = visNetwork.body.nodeIndices.length;
+  visNetwork.setOptions({
+    physics: { enabled: true, stabilization: { iterations: nodeCount > 400 ? 80 : 300 } }
+  });
+  visNetwork.stabilize();
 }
 
 // ─────────────────────────────────────────────────────────────
