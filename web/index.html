@@ -382,7 +382,7 @@
         <span class="legend-dot" style="background:#1c3050;border-color:#79b8ff"></span> On routing path
       </div>
       <div class="legend-item">
-        <span class="legend-dot" style="background:#1e2530;border-color:#30363d"></span> Irrelevant AS
+        <span class="legend-dot" style="background:#2d3748;border-color:#4a5568"></span> Irrelevant AS
       </div>
       <div class="legend-item">
         <span class="legend-line" style="background:#58a6ff;height:3px"></span> Route path
@@ -620,6 +620,28 @@ function parseCaida(content) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Graph — compute propagation ranks (BFS up from leaves)
+// ─────────────────────────────────────────────────────────────
+function computeRanks(topoNodes, topoEdges) {
+  const rank = new Map();
+  for (const asn of topoNodes.keys()) rank.set(asn, 0);
+
+  // Each provider's rank = max(customer rank) + 1; iterate until stable.
+  // Real BGP hierarchies are ≤~10 levels deep, so this converges fast.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const e of topoEdges) {
+      if (e.rel === -1) {  // e.from = provider, e.to = customer
+        const r = (rank.get(e.to) || 0) + 1;
+        if (r > (rank.get(e.from) || 0)) { rank.set(e.from, r); changed = true; }
+      }
+    }
+  }
+  return rank;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Graph — build & render with vis.js
 // ─────────────────────────────────────────────────────────────
 function buildGraph(routes, targetAsn) {
@@ -665,6 +687,10 @@ function buildGraph(routes, targetAsn) {
     }
   }
 
+  // Compute propagation ranks for size scaling
+  const ranks   = computeRanks(topo.nodes, topo.edges);
+  const maxRank = Math.max(1, ...ranks.values());
+
   // Build vis DataSet for nodes
   const visNodes = [];
   for (const asn of visibleIds) {
@@ -672,36 +698,40 @@ function buildGraph(routes, targetAsn) {
     const isRov     = rovSet.has(asn);
     const onPath    = pathNodes.has(asn);
     const isOrigin  = routes.some(r => r.as_path[r.as_path.length - 1] === asn);
+    const r         = (ranks.get(asn) || 0) / maxRank;  // 0..1
 
     let bg, border, fontColor, size, borderWidth;
 
     if (isTarget) {
       bg = '#1a3a6b'; border = '#58a6ff'; fontColor = '#e6edf3';
-      size = 30; borderWidth = 3;
+      size = Math.round(22 + r * 13); borderWidth = 3;  // 22–35
     } else if (isOrigin) {
       bg = '#4a2a00'; border = '#e3b341'; fontColor = '#e3b341';
-      size = 22; borderWidth = 2;
+      size = Math.round(14 + r * 10); borderWidth = 2;  // 14–24
     } else if (onPath && isRov) {
       bg = '#0d3320'; border = '#3fb950'; fontColor = '#3fb950';
-      size = 18; borderWidth = 2;
+      size = Math.round(12 + r * 10); borderWidth = 2;  // 12–22
     } else if (onPath) {
       bg = '#1c3050'; border = '#79b8ff'; fontColor = '#79b8ff';
-      size = 16; borderWidth = 2;
+      size = Math.round(11 + r * 9);  borderWidth = 2;  // 11–20
     } else {
-      bg = '#1e2530'; border = '#30363d'; fontColor = '#4d5566';
-      size = 7; borderWidth = 1;
+      bg = '#2d3748'; border = '#4a5568'; fontColor = '#8b96a8';
+      size = Math.round(8 + r * 10);  borderWidth = 1;  // 8–18
     }
 
     visNodes.push({
       id: asn,
-      label: onPath || isTarget ? `AS${asn}` : '',
+      label: `AS${asn}`,
       title: `AS ${asn}${isRov ? ' · ROV' : ''}${isOrigin ? ' · origin' : ''}`,
       color: {
         background: bg, border,
         highlight: { background: '#2a4a8b', border: '#79b8ff' },
         hover:      { background: '#1e2f50', border: '#58a6ff' }
       },
-      font: { color: fontColor, size: isTarget ? 14 : onPath ? 11 : 0 },
+      font: {
+        color: fontColor,
+        size: isTarget ? 14 : onPath ? 11 : 9,
+      },
       size, borderWidth,
       shape: 'dot',
     });
@@ -782,8 +812,6 @@ function buildGraph(routes, targetAsn) {
     }
   );
 
-  // Stop physics after it stabilises to save CPU
-  visNetwork.once('stabilizationIterationsDone', () => visNetwork.setOptions({ physics: { enabled: false } }));
 }
 
 function onToggleAll() {
@@ -794,9 +822,7 @@ function onToggleAll() {
 function resetLayout() {
   if (!visNetwork) return;
   visNetwork.setOptions({ physics: { enabled: true } });
-  visNetwork.stabilize(200);
-  visNetwork.once('stabilizationIterationsDone',
-    () => visNetwork.setOptions({ physics: { enabled: false } }));
+  visNetwork.stabilize(300);
 }
 
 // ─────────────────────────────────────────────────────────────
