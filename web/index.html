@@ -316,9 +316,9 @@
     <!-- Preset loader -->
     <div class="preset-bar">
       <span class="preset-label">Presets:</span>
-      <button class="btn-preset" id="preset-demo"   onclick="loadPreset('demo')">Demo (14 AS)</button>
+      <button class="btn-preset" id="preset-small"  onclick="loadPreset('small')">Small (14 AS)</button>
       <button class="btn-preset" id="preset-medium" onclick="loadPreset('medium')">Medium (99 AS)</button>
-      <button class="btn-preset" id="preset-full"   onclick="loadPreset('full')">Full CAIDA (~78K AS)</button>
+      <button class="btn-preset" id="preset-large"  onclick="loadPreset('large')">Large (250 AS)</button>
     </div>
     <div id="preset-progress" style="display:none;margin-bottom:14px">
       <div class="hint" id="preset-status">Loading…</div>
@@ -513,15 +513,15 @@ document.getElementById('anns-file').addEventListener('change', async function()
 
 async function loadPreset(type) {
   const PRESETS = {
-    demo:   { caida: 'data/demo_caida.txt',   anns: 'data/demo_anns.csv',
+    small:  { caida: 'data/demo_caida.txt',   anns: 'data/demo_anns.csv',
                rov:  'data/demo_rov_asns.txt', targetAsn: 100,
-               label: 'Demo (14 AS)' },
+               label: 'Small (14 AS)' },
     medium: { caida: 'data/medium_caida.txt', anns: 'data/medium_anns.csv',
                rov:  'data/medium_rov_asns.txt', targetAsn: 1001,
                label: 'Medium (99 AS)' },
-    full:   { caida: 'data/full_caida.txt',   anns: 'data/full_anns.csv',
-               rov:  'data/full_rov_asns.txt', targetAsn: 174,
-               label: 'Full CAIDA (~78K AS)', large: true },
+    large:  { caida: 'data/large_caida.txt',  anns: 'data/large_anns.csv',
+               rov:  'data/large_rov_asns.txt', targetAsn: 1001,
+               label: 'Large (250 AS)' },
   };
   const cfg = PRESETS[type];
   if (!cfg) return;
@@ -746,6 +746,72 @@ function computeRanks(topoNodes, topoEdges) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Graph — flow particles (drawn via vis.js afterDrawing hook)
+// ─────────────────────────────────────────────────────────────
+let particles  = [];
+let particleRaf = null;
+
+// Named function so visNetwork.off() can remove the exact same reference
+function renderParticles(ctx) {
+  if (!visNetwork || !particles.length) return;
+  const pos = visNetwork.getPositions();
+  ctx.save();
+  for (const p of particles) {
+    const fp = pos[p.from];
+    const tp = pos[p.to];
+    if (!fp || !tp) continue;
+    const x = fp.x + (tp.x - fp.x) * p.t;
+    const y = fp.y + (tp.y - fp.y) * p.t;
+    ctx.beginPath();
+    ctx.arc(x, y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle   = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur  = 8;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function startParticles(routes) {
+  stopParticles();
+  if (!routes.length || !visNetwork) return;
+
+  // Build one set of staggered particles per directed path-edge
+  // Direction: origin → target (how BGP announcements propagate)
+  for (const route of routes) {
+    const path  = route.as_path;  // [target, ..., origin]
+    const color = route.rov_invalid ? '#e3b341' : '#58a6ff';
+    const r     = 3.5;
+    for (let i = 0; i < path.length - 1; i++) {
+      const from = path[i + 1];   // origin side
+      const to   = path[i];       // target side
+      const speed = 0.004 + Math.random() * 0.0015;
+      for (let k = 0; k < 3; k++) {
+        particles.push({ from, to, t: k / 3, speed, color, r });
+      }
+    }
+  }
+
+  visNetwork.on('afterDrawing', renderParticles);
+
+  function tick() {
+    for (const p of particles) {
+      p.t += p.speed;
+      if (p.t >= 1) p.t -= 1;
+    }
+    if (visNetwork) visNetwork.redraw();
+    particleRaf = requestAnimationFrame(tick);
+  }
+  particleRaf = requestAnimationFrame(tick);
+}
+
+function stopParticles() {
+  if (particleRaf) { cancelAnimationFrame(particleRaf); particleRaf = null; }
+  if (visNetwork)  visNetwork.off('afterDrawing', renderParticles);
+  particles = [];
+}
+
+// ─────────────────────────────────────────────────────────────
 // Graph — build & render with vis.js
 // ─────────────────────────────────────────────────────────────
 function buildGraph(routes, targetAsn) {
@@ -894,7 +960,8 @@ function buildGraph(routes, targetAsn) {
   // Show graph card
   document.getElementById('graph-section').style.display = 'block';
 
-  // Destroy old network
+  // Stop particles and destroy old network before rebuilding
+  stopParticles();
   if (visNetwork) { visNetwork.destroy(); visNetwork = null; }
 
   const container = document.getElementById('graph-canvas');
@@ -933,6 +1000,10 @@ function buildGraph(routes, targetAsn) {
     }
   );
 
+  // Start flow particles once the network exists (after first stabilization)
+  visNetwork.once('stabilizationIterationsDone', () => startParticles(routes));
+  // Also start immediately if stabilization completes before the event fires
+  // (e.g. empty/trivial graphs) — startParticles is idempotent after stopParticles
 }
 
 function onToggleAll() {
@@ -942,10 +1013,13 @@ function onToggleAll() {
 
 function resetLayout() {
   if (!visNetwork) return;
+  stopParticles();
   const nodeCount = visNetwork.body.nodeIndices.length;
   visNetwork.setOptions({
     physics: { enabled: true, stabilization: { iterations: nodeCount > 400 ? 80 : 300 } }
   });
+  visNetwork.once('stabilizationIterationsDone',
+    () => { if (lastResults) startParticles(lastResults); });
   visNetwork.stabilize();
 }
 
