@@ -100,8 +100,8 @@ wasm: $(SRC_DIR)/wasm_main.cpp $(HEADERS)
 	$(EMCC) -std=c++17 -O2 \
 		-Iinclude \
 		-s WASM=1 \
-		-s EXPORTED_RUNTIME_METHODS='["ccall"]' \
-		-s EXPORTED_FUNCTIONS='["_run_bgp_simulation"]' \
+		-s EXPORTED_RUNTIME_METHODS='["ccall","lengthBytesUTF8","stringToUTF8"]' \
+		-s EXPORTED_FUNCTIONS='["_run_bgp_simulation","_malloc","_free"]' \
 		-s ALLOW_MEMORY_GROWTH=1 \
 		-s MODULARIZE=1 \
 		-s EXPORT_NAME='createBGPModule' \
