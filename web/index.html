@@ -1041,7 +1041,10 @@ function buildGraph(routes, targetAsn) {
       width: onPath ? 2.5 : 1,
       dashes: isPeer,
       arrows: isPeer ? undefined : { to: { enabled: true, scaleFactor: 0.6 } },
-      smooth: { type: 'dynamic' },
+      // Path edges stay dynamic (particles follow their bezier curves);
+      // off-path edges use straight lines, which eliminates their via-nodes
+      // from the physics simulation and speeds up both layout and rendering.
+      smooth: onPath ? { type: 'dynamic' } : false,
     });
   }
 
@@ -1136,10 +1139,12 @@ function buildGraph(routes, targetAsn) {
     }
   });
 
-  // Start flow particles once the network exists (after first stabilization)
-  visNetwork.once('stabilizationIterationsDone', () => startParticles(routes));
-  // Also start immediately if stabilization completes before the event fires
-  // (e.g. empty/trivial graphs) — startParticles is idempotent after stopParticles
+  // Once the layout has settled, kill physics so its RAF loop stops running.
+  // After this point only our particle tick drives redraws, which is far cheaper.
+  visNetwork.once('stabilizationIterationsDone', () => {
+    visNetwork.setOptions({ physics: { enabled: false } });
+    startParticles(routes);
+  });
 }
 
 function onToggleAll() {
@@ -1154,8 +1159,10 @@ function resetLayout() {
   visNetwork.setOptions({
     physics: { enabled: true, stabilization: { iterations: nodeCount > 400 ? 80 : 300 } }
   });
-  visNetwork.once('stabilizationIterationsDone',
-    () => { if (lastResults) startParticles(lastResults); });
+  visNetwork.once('stabilizationIterationsDone', () => {
+    visNetwork.setOptions({ physics: { enabled: false } });
+    if (lastResults) startParticles(lastResults);
+  });
   visNetwork.stabilize();
 }
 
