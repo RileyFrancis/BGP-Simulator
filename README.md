@@ -14,6 +14,30 @@ To run it from the command line:
 ./build/bgp_simulator <caida_file> <announcements.csv> <rov_asns.txt> <output.csv>
 ```
 
+### Make Targets
+
+| Target | Description |
+|---|---|
+| `make` | Build the main `bgp_simulator` binary into `build/` |
+| `make test` | Build and run the full test suite |
+| `make run_prefix` | Build and run the simulator on the `bench/prefix/` dataset, writing output to `output/ribs_prefix.csv` |
+| `make run_many` | Build and run the simulator on the `bench/many/` dataset, writing output to `output/ribs_many.csv` |
+| `make wasm` | Compile the simulator to WebAssembly using Emscripten (requires `source ~/emsdk/emsdk_env.sh` first), writing output to `web/` |
+| `make clean` | Delete all build artifacts from `build/` and `output/` |
+
+Individual test binaries can also be built and run on their own:
+
+| Target | Description |
+|---|---|
+| `make test_graph` | AS graph construction and cycle detection |
+| `make test_announcement` | Announcement data structure |
+| `make test_bgp_policy` | BGP route selection logic |
+| `make test_flatten_graph` | Propagation rank assignment |
+| `make test_seeding` | Route announcement seeding |
+| `make test_propagation` | Full up/across/down propagation |
+| `make test_output` | CSV output formatting |
+| `make test_rov` | ROV policy enforcement |
+
 ### Algorithms and Complexity
 
 The main stages of the simulator and their time complexity:
