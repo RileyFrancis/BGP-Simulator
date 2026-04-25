@@ -1,5 +1,8 @@
 # BGP Simulator
 
+> [!TIP]
+> ***View the simulator online at https://bgp-simulator.pages.dev***
+
 ## The Simulator
 
 This is a BGP (Border Gateway Protocol) simulator written in C++. BGP is the protocol that routers on the internet use to figure out how to get traffic from one place to another — every major network (called an Autonomous System, or AS) runs it to share routing information with its neighbors.
